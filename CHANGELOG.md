@@ -4,6 +4,26 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.1
+
+A patch: the same grammar and the same answers.  The differential
+against the Orbit registry's own requirement parser still agrees on
+every case.
+
+- **The test module moved out of `src/`.**  A package's `src/` ships
+  whole and a consumer compiles every module in it, so the suite is
+  under `tests/` where it is not published.  Run it with
+  `novo test tests/semver_tests.nv`.
+- **The manifest carries the fields the registry browses by.**
+  `category`, `tags`, `repository` and `maintainers` were added after
+  `0.1.0` was published, and a published version is never replaced, so
+  this release is the first one the packages page can shelve and
+  filter.
+
+There is no bit arithmetic here to rewrite onto the new operators: a
+version is three numbers and two strings, and comparing them is
+ordinary comparison.
+
 ## 0.1.0
 
 First release: `parse`, `compare`, `matches`, `satisfies`,
