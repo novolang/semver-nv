@@ -1,3 +1,5 @@
+> Developed in the novo-lang monorepo under `orbit/semver-nv`, which is the source of truth until this package graduates out of it.  This repository is a mirror: it is where CI runs and where releases are tagged, and changes are made upstream.
+
 # semver-nv
 
 Semantic versions: parsing, ordering, and deciding whether a version
