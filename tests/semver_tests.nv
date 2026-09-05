@@ -2,7 +2,7 @@
 // ordering, and the requirement grammar a manifest writes.
 //
 // Run from the package directory:
-//   novo test src/semver_tests.nv
+//   novo test tests/semver_tests.nv
 //
 // The vectors are the registry's published rules: every string its
 // MALFORMED_VERSION rule lists, the ordering its MONOTONIC rule sorts

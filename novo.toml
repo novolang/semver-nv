@@ -4,7 +4,10 @@ version     = "0.1.0"
 description = "Semantic versions: parsing, ordering, and deciding whether a version answers a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0.  Mirrors the rules the Orbit registry enforces, and is differential-tested against the registry's own parser."
 license     = "Apache-2.0"
 stability   = "experimental"
-keywords    = ["semver", "version", "range", "resolver", "registry"]
+category    = "tooling"
+tags        = ["semver", "version", "range", "resolver", "registry"]
+repository  = "https://github.com/novolang/semver-nv"
+maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
 # The README is the package's one page, and its own first heading is the

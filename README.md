@@ -109,7 +109,7 @@ locally and fails on install. No resolution across a dependency graph;
 ## Tests
 
 ```
-novo test src/semver_tests.nv
+novo test tests/semver_tests.nv
 ```
 
 The vectors are the registry's published rules: every string its
