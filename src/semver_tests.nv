@@ -1,0 +1,244 @@
+// semver_tests.nv — the forms the registry's own rules name, the
+// ordering, and the requirement grammar a manifest writes.
+//
+// Run from the package directory:
+//   novo test src/semver_tests.nv
+//
+// The vectors are the registry's published rules: every string its
+// MALFORMED_VERSION rule lists, the ordering its MONOTONIC rule sorts
+// by, and the requirement forms a manifest is allowed to contain.  A
+// separate differential run compares this parser against the registry
+// backend's own over a shared corpus, so agreement is measured rather
+// than assumed.
+
+use std.list
+use std.test
+use semver
+
+// `text` parsed and rendered again, or "-" when it is not a version.
+// One string per row makes a table of forms readable.
+fn round_trip(text: Str) -> Str
+    match semver.parse(text)
+        None    => "-"
+        Some(v) => v.text()
+
+// The comparison of two version strings, as -1 / 0 / 1, or 9 when
+// either of them fails to parse.
+fn cmp(a: Str, b: Str) -> Int
+    match semver.parse(a)
+        None     => 9
+        Some(va) =>
+            match semver.parse(b)
+                None     => 9
+                Some(vb) => semver.compare(va, vb)
+
+@test
+fn test_the_forms_that_parse() [io]
+    test.assert_eq_str(round_trip("1.4.2"), "1.4.2")
+    test.assert_eq_str(round_trip("0.0.0"), "0.0.0")
+    test.assert_eq_str(round_trip("1.4.2-rc.1"), "1.4.2-rc.1")
+    test.assert_eq_str(round_trip("1.4.2+build.7"), "1.4.2+build.7")
+    test.assert_eq_str(round_trip("0.2.0-alpha.3+2026w34"), "0.2.0-alpha.3+2026w34")
+
+@test
+fn test_the_forms_the_registry_refuses() [io]
+    // Every string the registry's MALFORMED_VERSION rule names.
+    test.assert_eq_str(round_trip("1.2"), "-")
+    test.assert_eq_str(round_trip("1.2.3.4"), "-")
+    test.assert_eq_str(round_trip("v1.2.3"), "-")
+    test.assert_eq_str(round_trip("1.2.x"), "-")
+    test.assert_eq_str(round_trip("1.2.3-"), "-")
+    test.assert_eq_str(round_trip(""), "-")
+    test.assert_eq_str(round_trip("1..3"), "-")
+    test.assert_eq_str(round_trip("a.b.c"), "-")
+
+@test
+fn test_the_ordering_of_the_three_numbers() [io]
+    test.assert_eq(cmp("1.0.0", "2.0.0"), -1)
+    test.assert_eq(cmp("2.0.0", "1.0.0"), 1)
+    test.assert_eq(cmp("1.2.0", "1.10.0"), -1)
+    test.assert_eq(cmp("1.2.9", "1.2.10"), -1)
+    test.assert_eq(cmp("1.4.2", "1.4.2"), 0)
+
+@test
+fn test_a_release_outranks_its_prerelease() [io]
+    // Semver §11, and the reason `novo pkg add` never picks one up.
+    test.assert_eq(cmp("1.0.0-alpha", "1.0.0"), -1)
+    test.assert_eq(cmp("1.0.0", "1.0.0-rc.1"), 1)
+    test.assert_eq(cmp("1.0.0-alpha", "1.0.0-beta"), -1)
+    test.assert_eq(cmp("1.0.0-beta", "1.0.0-rc"), -1)
+
+@test
+fn test_prerelease_labels_compare_as_text() [io]
+    // The documented narrowing: `rc.10` sorts BEFORE `rc.2`, because
+    // the labels are compared as plain strings.  Asserted rather than
+    // apologised for, so the behaviour is pinned either way.
+    test.assert_eq(cmp("1.0.0-rc.10", "1.0.0-rc.2"), -1)
+
+@test
+fn test_build_metadata_is_not_part_of_the_version() [io]
+    // Semver §10: two versions differing only in build metadata are the
+    // same version, which is why publishing the second after the first
+    // is refused as a duplicate.
+    test.assert_eq(cmp("1.4.2", "1.4.2+ci.881"), 0)
+    test.assert_eq(cmp("1.4.2+a", "1.4.2+b"), 0)
+    test.assert_eq(cmp("1.4.2-rc.1+a", "1.4.2-rc.1"), 0)
+
+@test
+fn test_caret_below_one_moves_the_promise_down_one_place() [io]
+    // In 0.x a minor bump is the break, so `^0.4.1` refuses `0.5.0`.
+    test.assert_eq(semver.satisfies("^0.4.1", "0.4.1"), true)
+    test.assert_eq(semver.satisfies("^0.4.1", "0.4.9"), true)
+    test.assert_eq(semver.satisfies("^0.4.1", "0.4.0"), false)
+    test.assert_eq(semver.satisfies("^0.4.1", "0.5.0"), false)
+    // And in 0.0.x every patch is a break.
+    test.assert_eq(semver.satisfies("^0.0.3", "0.0.3"), true)
+    test.assert_eq(semver.satisfies("^0.0.3", "0.0.4"), false)
+
+@test
+fn test_caret_from_one_up_allows_the_rest_of_the_major() [io]
+    test.assert_eq(semver.satisfies("^1.2.3", "1.2.3"), true)
+    test.assert_eq(semver.satisfies("^1.2.3", "1.9.0"), true)
+    test.assert_eq(semver.satisfies("^1.2.3", "1.2.2"), false)
+    test.assert_eq(semver.satisfies("^1.2.3", "2.0.0"), false)
+    // A partial caret fills the unwritten numbers with zero.
+    test.assert_eq(semver.satisfies("^1.2", "1.2.0"), true)
+    test.assert_eq(semver.satisfies("^1.2", "1.1.9"), false)
+    test.assert_eq(semver.satisfies("^1", "1.9.9"), true)
+    test.assert_eq(semver.satisfies("^1", "2.0.0"), false)
+
+@test
+fn test_tilde_holds_the_minor() [io]
+    test.assert_eq(semver.satisfies("~1.2.3", "1.2.9"), true)
+    test.assert_eq(semver.satisfies("~1.2.3", "1.3.0"), false)
+    test.assert_eq(semver.satisfies("~1.2", "1.2.9"), true)
+    test.assert_eq(semver.satisfies("~1.2", "1.3.0"), false)
+    // With only a major written there is no minor to hold, so the whole
+    // major is allowed.
+    test.assert_eq(semver.satisfies("~1", "1.9.0"), true)
+    test.assert_eq(semver.satisfies("~1", "2.0.0"), false)
+
+@test
+fn test_the_comparison_operators() [io]
+    test.assert_eq(semver.satisfies(">=1.0.0", "1.0.0"), true)
+    test.assert_eq(semver.satisfies(">=1.0.0", "0.9.9"), false)
+    test.assert_eq(semver.satisfies(">1.0.0", "1.0.0"), false)
+    test.assert_eq(semver.satisfies("<2.0.0", "1.9.9"), true)
+    test.assert_eq(semver.satisfies("<2.0.0", "2.0.0"), false)
+    test.assert_eq(semver.satisfies("<=2.0.0", "2.0.0"), true)
+    test.assert_eq(semver.satisfies("=1.4.2", "1.4.2"), true)
+    test.assert_eq(semver.satisfies("=1.4.2", "1.4.3"), false)
+
+@test
+fn test_a_requirement_is_a_conjunction() [io]
+    // The form a manifest writes for "inside this major, but not before
+    // the fix landed".
+    test.assert_eq(semver.satisfies(">=1.2.0, <2.0.0", "1.5.0"), true)
+    test.assert_eq(semver.satisfies(">=1.2.0, <2.0.0", "1.1.0"), false)
+    test.assert_eq(semver.satisfies(">=1.2.0, <2.0.0", "2.0.0"), false)
+    // Whitespace around a comma is a manifest's, not a meaning.
+    test.assert_eq(semver.satisfies(">=1.2.0,<2.0.0", "1.5.0"), true)
+
+@test
+fn test_the_wildcards() [io]
+    test.assert_eq(semver.satisfies("*", "0.0.1"), true)
+    test.assert_eq(semver.satisfies("*", "9.9.9"), true)
+    test.assert_eq(semver.satisfies("1.x", "1.9.9"), true)
+    test.assert_eq(semver.satisfies("1.x", "2.0.0"), false)
+    test.assert_eq(semver.satisfies("1.2.x", "1.2.9"), true)
+    test.assert_eq(semver.satisfies("1.2.x", "1.3.0"), false)
+    test.assert_eq(semver.satisfies("1.2.*", "1.2.9"), true)
+
+@test
+fn test_a_bare_version_is_a_caret_requirement() [io]
+    // The convention every manifest that writes `dns = "0.1"` follows.
+    test.assert_eq(semver.satisfies("1.2.3", "1.9.0"), true)
+    test.assert_eq(semver.satisfies("1.2.3", "2.0.0"), false)
+    test.assert_eq(semver.satisfies("0.1", "0.1.9"), true)
+    test.assert_eq(semver.satisfies("0.1", "0.2.0"), false)
+
+@test
+fn test_a_prerelease_is_not_picked_up_by_accident() [io]
+    // The rule that keeps an unfinished release out of a build nobody
+    // changed: a prerelease is only chosen when the requirement named
+    // one at the same triple.
+    test.assert_eq(semver.satisfies("^1.0.0", "1.1.0-alpha"), false)
+    test.assert_eq(semver.satisfies("*", "1.1.0-alpha"), false)
+    test.assert_eq(semver.satisfies(">=1.0.0", "1.1.0-alpha"), false)
+    test.assert_eq(semver.satisfies("^1.1.0-alpha", "1.1.0-alpha"), true)
+    test.assert_eq(semver.satisfies("^1.1.0-alpha", "1.1.0-beta"), true)
+    test.assert_eq(semver.satisfies(">=1.1.0-alpha", "1.1.0"), true)
+
+@test
+fn test_a_requirement_that_is_not_one() [io]
+    // A caller has to be able to tell "nothing satisfies it" from "that
+    // is not a requirement", which is what `requirement_ok` is for.
+    test.assert_eq(semver.requirement_ok("^1.2.3"), true)
+    test.assert_eq(semver.requirement_ok(">=1.0.0, <2.0.0"), true)
+    test.assert_eq(semver.requirement_ok("*"), true)
+    test.assert_eq(semver.requirement_ok(""), false)
+    test.assert_eq(semver.requirement_ok("banana"), false)
+    test.assert_eq(semver.requirement_ok(">=1.x"), false)
+    test.assert_eq(semver.requirement_ok("^1.2.3, banana"), false)
+    test.assert_eq(semver.satisfies("banana", "1.2.3"), false)
+
+@test
+fn test_best_picks_the_highest_that_answers() [io]
+    let listed = ["0.1.0", "0.4.1", "0.4.9", "0.5.0", "1.0.0"]
+    test.assert_eq_str(semver.best("^0.4", listed) ?? "-", "0.4.9")
+    test.assert_eq_str(semver.best("^1", listed) ?? "-", "1.0.0")
+    test.assert_eq_str(semver.best("*", listed) ?? "-", "1.0.0")
+    test.assert_eq_str(semver.best("^9", listed) ?? "-", "-")
+
+@test
+fn test_best_orders_by_version_and_not_by_text() [io]
+    // "0.10.0" is below "0.9.0" alphabetically and above it as a
+    // version.  A resolver that sorted the strings would install the
+    // wrong release, which is the whole reason this function exists.
+    let listed = ["0.9.0", "0.10.0", "0.2.0"]
+    test.assert_eq_str(semver.best("*", listed) ?? "-", "0.10.0")
+
+@test
+fn test_best_ignores_a_candidate_that_is_not_a_version() [io]
+    // A listing with a stray entry is a listing, not a failure.
+    let listed = ["1.0.0", "not-a-version", "1.2.0"]
+    test.assert_eq_str(semver.best("^1", listed) ?? "-", "1.2.0")
+
+@test
+fn test_best_answers_nothing_for_an_empty_listing() [io]
+    let empty: [Str] = []
+    test.assert_eq_str(semver.best("*", empty) ?? "-", "-")
+
+@test
+fn test_matches_takes_a_parsed_version() [io]
+    // The form for a caller that already parsed once and is now asking
+    // several requirements about the same version.
+    match semver.parse("1.4.2")
+        None    => test.fail("1.4.2 did not parse")
+        Some(v) =>
+            test.assert_eq(semver.matches("^1.0.0", v), true)
+            test.assert_eq(semver.matches("~1.4", v), true)
+            test.assert_eq(semver.matches("^2", v), false)
+
+@test
+fn test_the_two_version_lists_sort_the_same_way() [io]
+    // A round trip through `compare`: sorting a shuffled listing by it
+    // must give the published order.
+    let shuffled = ["1.0.0", "0.1.0", "1.0.0-rc.1", "0.10.0", "0.9.0", "2.0.0"]
+    var ordered: [Str] = []
+    var pool = shuffled
+    for _step in 0 .. list.len(shuffled)
+        let lowest = lowest_of(pool)
+        ordered = list.push(ordered, lowest)
+        pool = list.filter(pool, t => t != lowest)
+    test.assert_eq_str(list.join(ordered, " "),
+                       "0.1.0 0.9.0 0.10.0 1.0.0-rc.1 1.0.0 2.0.0")
+
+// The lowest version string in `texts`, by `compare`.  A selection sort
+// rather than `list.sort`, because version strings do not sort as text.
+fn lowest_of(texts: [Str]) -> Str
+    var best = texts[0]
+    for t in texts
+        if cmp(t, best) < 0
+            best = t
+    best

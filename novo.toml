@@ -1,0 +1,16 @@
+[package]
+name        = "semver-nv"
+version     = "0.1.0"
+description = "Semantic versions: parsing, ordering, and deciding whether a version answers a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0.  Mirrors the rules the Orbit registry enforces, and is differential-tested against the registry's own parser."
+license     = "Apache-2.0"
+stability   = "experimental"
+keywords    = ["semver", "version", "range", "resolver", "registry"]
+main        = "src/main.nv"
+
+# The README is the package's one page, and its own first heading is the
+# package name — which says nothing in a list of this package's pages.
+[docs.pages]
+"README.md" = "Parsing versions and matching requirements"
+
+[dependencies]
+# None.  std.str does the splitting and std.list holds the pieces.

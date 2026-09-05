@@ -1,0 +1,466 @@
+// Semantic versions — parsing, ordering, and deciding whether a version
+// answers a requirement.
+//
+// What it is.  A version is `MAJOR.MINOR.PATCH`, three non-negative
+// integers, with an optional `-prerelease` and an optional `+build`.  A
+// requirement is a comma-separated conjunction of the primitives a
+// manifest writes: `^1.2`, `~0.4.1`, `>=1.0.0, <2.0.0`, `=1.4.2`,
+// `1.x`, `*`.  The two together are how a package manager turns "what
+// this program asked for" into "which release to install".
+//
+// What it does.  `parse`, `compare`, `matches`, and `best` — the last
+// being the resolver's whole question: given a requirement and the
+// versions that exist, which one is chosen.
+//
+// How to use it.
+//
+//     match semver.parse("1.4.2-rc.1")
+//         None    => println("not a version")
+//         Some(v) => println("${v.major} ${v.is_prerelease()}")
+//
+//     semver.matches("^1.2", v)              // Bool
+//     semver.best("^0.4", ["0.4.1", "0.5.0"])  // Some("0.4.1")
+//
+// What it costs.  One pass over the text per parse, and one pass over
+// the candidate list per `best`.  No table, no state, and the only
+// allocation is the pieces the splitting produces.
+//
+// Two documented narrowings, both inherited from the registry this
+// mirrors:
+//
+//   * Prerelease labels compare as plain text rather than by semver
+//     §11's dot-separated identifier rules.  `alpha` < `beta` < `rc`
+//     works because that is also alphabetical order; `rc.10` sorts
+//     before `rc.2`, so write `rc.02` if you expect to pass nine.
+//   * Build metadata is parsed, kept for rendering, and ignored for
+//     ordering — which is what semver §10 requires, so two versions
+//     differing only in build metadata are the same version.
+
+use std.list
+use std.str
+
+// A parsed semantic version.  `pre` and `build` are empty strings when
+// the version carried neither, so there is no optional to unwrap for
+// the common case.
+pub struct Version
+    major: Int
+    minor: Int
+    patch: Int
+    pre: Str
+    build: Str
+
+// `text` as a version, or `None` when it is not one.  `1.2`, `1.2.3.4`,
+// `v1.2.3`, `1.2.x` and a bare trailing `-` are all `None`: this is the
+// parser a registry runs before it accepts a publish, so it refuses
+// rather than guesses.
+pub fn parse(text: Str) -> ?Version
+    // Build metadata comes off first: it never participates in
+    // ordering, so nothing below has to keep stepping around it.
+    var core = text
+    var build = ""
+    match str.index(text, "+")
+        None    =>
+            build = ""
+        Some(i) =>
+            build = str.slice(text, i + 1, str.len(text))
+            core = str.slice(text, 0, i)
+    var pre = ""
+    match str.index(core, "-")
+        None    =>
+            pre = ""
+        Some(i) =>
+            pre = str.slice(core, i + 1, str.len(core))
+            core = str.slice(core, 0, i)
+    let parts = str.split(core, ".")
+    if list.len(parts) != 3
+        None
+    else if not (all_digits(parts[0]) and all_digits(parts[1]) and all_digits(parts[2]))
+        None
+    else if str.len(pre) == 0 and str.contains(text, "-")
+        // `1.2.3-`: a dash with nothing after it is a prerelease label
+        // that was not written, not an absent one.
+        None
+    else
+        Some(Version { major: str.to_int(parts[0]) ?? 0,
+                       minor: str.to_int(parts[1]) ?? 0,
+                       patch: str.to_int(parts[2]) ?? 0,
+                       pre: pre, build: build })
+
+// -1, 0 or 1, by the ordering a resolver picks "highest" with.
+//
+// A release outranks a prerelease at the same triple (semver §11:
+// `1.0.0-alpha` < `1.0.0`), and build metadata is ignored, so two
+// versions differing only in it compare equal.
+pub fn compare(a: Version, b: Version) -> Int
+    if a.major != b.major
+        rank(a.major < b.major)
+    else if a.minor != b.minor
+        rank(a.minor < b.minor)
+    else if a.patch != b.patch
+        rank(a.patch < b.patch)
+    else if a.pre == b.pre
+        0
+    else if str.len(a.pre) == 0
+        1
+    else if str.len(b.pre) == 0
+        -1
+    else
+        rank(a.pre < b.pre)
+
+impl Version
+    // The version as text, in the form it parses from.  A round trip
+    // through `parse` gives back an equal value.
+    fn text(self) -> Str
+        var out = "${self.major}.${self.minor}.${self.patch}"
+        if str.len(self.pre) > 0
+            out = out + "-" + self.pre
+        if str.len(self.build) > 0
+            out = out + "+" + self.build
+        out
+
+    // Whether this version carries a prerelease label, and so ranks
+    // below the plain version with the same triple.
+    fn is_prerelease(self) -> Bool
+        str.len(self.pre) > 0
+
+// ── Requirements ─────────────────────────────────────────────────────
+
+// One primitive of a requirement.  A requirement is a conjunction of
+// these, so a version answers it only by answering every one.
+enum Bound
+    // `*` — every release.
+    Any
+    // `1.x` — any version with this major.
+    AnyMinor(major: Int)
+    // `1.2.x` — any version with this major and minor.
+    AnyPatch(major: Int, minor: Int)
+    // `^1.2` — at least this, below the next incompatible version.
+    // `written` is how many of the three numbers the author gave.
+    Caret(base: Version, written: Int)
+    // `~1.2` — at least this, below the next minor (or major, when only
+    // the major was written).
+    Tilde(base: Version, written: Int)
+    // `>=1.0.0` and its siblings, including a bare `=`.
+    Compare(op: Str, base: Version)
+
+// Whether `version` answers `requirement`.  False when the requirement
+// does not parse — `requirement_ok` is how a caller tells that apart
+// from a requirement nothing satisfies.
+pub fn matches(requirement: Str, version: Version) -> Bool
+    match parse_requirement(requirement)
+        None         => false
+        Some(bounds) => satisfies_all(version, bounds)
+
+// Whether the version written as `version_text` answers `requirement`.
+// The form for a caller holding both as strings, which is what a
+// manifest and a registry listing each hold.
+pub fn satisfies(requirement: Str, version_text: Str) -> Bool
+    match parse(version_text)
+        None    => false
+        Some(v) => matches(requirement, v)
+
+// Whether `requirement` is a requirement at all.  A caller that got
+// `false` from `matches` needs this to tell "no version answers it"
+// from "that is not a requirement".
+pub fn requirement_ok(requirement: Str) -> Bool
+    match parse_requirement(requirement)
+        None    => false
+        Some(_) => true
+
+// The highest of `candidates` that answers `requirement`, or `None`.
+// This is the resolver's question: the candidates are the versions a
+// registry lists, and the answer is the one to install.
+pub fn best(requirement: Str, candidates: [Str]) -> ?Str
+    match parse_requirement(requirement)
+        None         => None
+        Some(bounds) =>
+            var chosen: ?Str = None
+            var chosen_v = zero_version()
+            for text in candidates
+                // A candidate that does not parse is not a release the
+                // registry could serve, so it is simply not a candidate.
+                let candidate = parse(text)
+                let wins = match candidate
+                    None    => false
+                    Some(v) => satisfies_all(v, bounds) and better(v, chosen, chosen_v)
+                if wins
+                    chosen = Some(text)
+                    chosen_v = candidate ?? chosen_v
+            chosen
+
+// ── Parsing a requirement ────────────────────────────────────────────
+
+// `requirement` as its primitives, or `None` when any of them is not
+// one.  A requirement is a conjunction, so one bad primitive makes the
+// whole string unusable rather than partly usable.
+fn parse_requirement(requirement: Str) -> ?[Bound]
+    let pieces = str.split(requirement, ",")
+    var bounds: [Bound] = []
+    var ok = list.len(pieces) > 0
+    for piece in pieces
+        match parse_bound(str.trim(piece))
+            None    =>
+                ok = false
+            Some(b) =>
+                bounds = list.push(bounds, b)
+    if ok
+        Some(bounds)
+    else
+        None
+
+// One primitive.  A bare version is a caret requirement, which is the
+// convention every manifest format that writes `"1.2"` follows.
+fn parse_bound(piece: Str) -> ?Bound
+    if str.len(piece) == 0
+        None
+    else if piece == "*"
+        Some(Any)
+    else if str.starts_with(piece, "^")
+        with_version(piece, 1, "^")
+    else if str.starts_with(piece, "~")
+        with_version(piece, 1, "~")
+    else if str.starts_with(piece, ">=")
+        with_version(piece, 2, ">=")
+    else if str.starts_with(piece, "<=")
+        with_version(piece, 2, "<=")
+    else if str.starts_with(piece, ">")
+        with_version(piece, 1, ">")
+    else if str.starts_with(piece, "<")
+        with_version(piece, 1, "<")
+    else if str.starts_with(piece, "=")
+        with_version(piece, 1, "=")
+    else
+        bare_bound(piece)
+
+// The primitive for an operator and the version tail after it.  A
+// wildcard under an operator is refused: `>=1.x` names no single
+// version to compare against.
+fn with_version(piece: Str, skip: Int, op: Str) -> ?Bound
+    let tail = str.slice(piece, skip, str.len(piece))
+    match parse_tail(tail)
+        None    => None
+        Some(t) =>
+            if t.wildcard
+                None
+            else if op == "^"
+                Some(Caret(base: t.version, written: t.written))
+            else if op == "~"
+                Some(Tilde(base: t.version, written: t.written))
+            else
+                Some(Compare(op: op, base: t.version))
+
+// A primitive with no operator: a wildcard, or a version that means a
+// caret requirement.
+fn bare_bound(piece: Str) -> ?Bound
+    match parse_tail(piece)
+        None    => None
+        Some(t) =>
+            if not t.wildcard
+                Some(Caret(base: t.version, written: t.written))
+            else if t.written == 0
+                Some(Any)
+            else if t.written == 1
+                Some(AnyMinor(major: t.version.major))
+            else
+                Some(AnyPatch(major: t.version.major, minor: t.version.minor))
+
+// A parsed version tail: the version with the numbers the author did
+// not write left at zero, how many they did write, and whether the
+// piece ended in a wildcard.
+struct Tail
+    version: Version
+    written: Int
+    wildcard: Bool
+
+// `1`, `1.2`, `1.2.3`, `1.2.3-rc.1`, `x`, `1.x`, `1.2.*`.
+fn parse_tail(text: Str) -> ?Tail
+    var core = text
+    var pre = ""
+    match str.index(text, "-")
+        None    =>
+            pre = ""
+        Some(i) =>
+            pre = str.slice(text, i + 1, str.len(text))
+            core = str.slice(text, 0, i)
+    let comps = str.split(core, ".")
+    let n = list.len(comps)
+    if n == 0 or n > 3
+        None
+    else if is_wildcard(comps[n - 1])
+        // A wildcard is only a wildcard in the LAST position, and it
+        // takes no prerelease with it.
+        wildcard_tail(comps, n)
+    else if not all_of_them_are_digits(comps)
+        None
+    else
+        Some(Tail { version: version_of(comps, n, pre), written: n, wildcard: false })
+
+// The tail for a piece ending in `x`, `X` or `*`.
+fn wildcard_tail(comps: [Str], n: Int) -> ?Tail
+    let leading = list.take(comps, n - 1)
+    if not all_of_them_are_digits(leading)
+        None
+    else
+        Some(Tail { version: version_of(leading, n - 1, ""),
+                    written: n - 1, wildcard: true })
+
+// The version those components describe, with the unwritten numbers at
+// zero — which is what a partial requirement means for its lower bound.
+fn version_of(comps: [Str], n: Int, pre: Str) -> Version
+    Version { major: number_at(comps, 0, n), minor: number_at(comps, 1, n),
+              patch: number_at(comps, 2, n), pre: pre, build: "" }
+
+// Component `i`, or zero when the author wrote fewer than `i + 1`.
+fn number_at(comps: [Str], i: Int, n: Int) -> Int
+    if i < n
+        str.to_int(comps[i]) ?? 0
+    else
+        0
+
+// ── Deciding ─────────────────────────────────────────────────────────
+
+// Whether `v` answers every primitive, prerelease rule included.
+fn satisfies_all(v: Version, bounds: [Bound]) -> Bool
+    prerelease_allowed(v, bounds) and every_bound_holds(v, bounds)
+
+// A prerelease is only chosen when the requirement asked for one at the
+// same triple.  Without this rule `^1.0.0` would pick up `1.1.0-alpha`,
+// and a release nobody has finished would arrive in a build nobody
+// changed.
+fn prerelease_allowed(v: Version, bounds: [Bound]) -> Bool
+    if not v.is_prerelease()
+        true
+    else
+        var allowed = false
+        for b in bounds
+            if opts_into_prereleases(b, v)
+                allowed = true
+        allowed
+
+// Whether this primitive names a prerelease at `v`'s own triple, which
+// is the only way a prerelease is ever chosen.
+fn opts_into_prereleases(b: Bound, v: Version) -> Bool
+    match base_of(b)
+        None       => false
+        Some(base) => base.is_prerelease() and same_triple(base, v)
+
+// Whether two versions carry the same MAJOR.MINOR.PATCH, whatever
+// labels they carry after it.
+fn same_triple(a: Version, b: Version) -> Bool
+    a.major == b.major and a.minor == b.minor and a.patch == b.patch
+
+// The version a primitive was written against, if it names one.  A
+// wildcard names none, which is why `*` never opts into prereleases.
+fn base_of(b: Bound) -> ?Version
+    match b
+        Any                 => None
+        AnyMinor(_major)    => None
+        AnyPatch(_maj, _mi) => None
+        Caret(base, _w)     => Some(base)
+        Tilde(base, _w)     => Some(base)
+        Compare(_op, base)  => Some(base)
+
+// Whether every primitive holds, ignoring the prerelease rule.
+fn every_bound_holds(v: Version, bounds: [Bound]) -> Bool
+    var holds = true
+    for b in bounds
+        if not bound_holds(v, b)
+            holds = false
+    holds
+
+// One primitive, against one version.
+fn bound_holds(v: Version, b: Bound) -> Bool
+    match b
+        Any                    => true
+        AnyMinor(major)        => v.major == major
+        AnyPatch(major, minor) => v.major == major and v.minor == minor
+        Caret(base, _written)  => in_range(v, base, caret_ceiling(base))
+        Tilde(base, written)   => in_range(v, base, tilde_ceiling(base, written))
+        Compare(op, base)      => compares(v, op, base)
+
+// `base <= v < ceiling`, the shape both caret and tilde reduce to.
+fn in_range(v: Version, base: Version, ceiling: Version) -> Bool
+    compare(v, base) >= 0 and compare(v, ceiling) < 0
+
+// The first version a caret requirement excludes: the next number that
+// is allowed to break you.  Below `1.0.0` that is the minor, and below
+// `0.1.0` the patch — which is the rule that makes `^0.4.1` refuse
+// `0.5.0`.
+fn caret_ceiling(base: Version) -> Version
+    if base.major > 0
+        Version { major: base.major + 1, minor: 0, patch: 0, pre: "", build: "" }
+    else if base.minor > 0
+        Version { major: 0, minor: base.minor + 1, patch: 0, pre: "", build: "" }
+    else
+        Version { major: 0, minor: 0, patch: base.patch + 1, pre: "", build: "" }
+
+// The first version a tilde requirement excludes: the next minor when
+// the author wrote one, and the next major when they wrote only a
+// major.  So `~1.2` allows `1.2.9` and refuses `1.3.0`, while `~1`
+// allows `1.9.0`.
+fn tilde_ceiling(base: Version, written: Int) -> Version
+    if written >= 2
+        Version { major: base.major, minor: base.minor + 1, patch: 0, pre: "", build: "" }
+    else
+        Version { major: base.major + 1, minor: 0, patch: 0, pre: "", build: "" }
+
+// One comparison operator.
+fn compares(v: Version, op: Str, base: Version) -> Bool
+    let c = compare(v, base)
+    if op == "="
+        c == 0
+    else if op == ">"
+        c > 0
+    else if op == ">="
+        c >= 0
+    else if op == "<"
+        c < 0
+    else
+        c <= 0
+
+// Whether `v` outranks the best candidate so far.
+fn better(v: Version, chosen: ?Str, chosen_v: Version) -> Bool
+    match chosen
+        None    => true
+        Some(_) => compare(v, chosen_v) > 0
+
+// ── Small helpers ────────────────────────────────────────────────────
+
+// The version every number of which is zero — the starting point a
+// running "best so far" is compared against before anything has won.
+fn zero_version() -> Version
+    Version { major: 0, minor: 0, patch: 0, pre: "", build: "" }
+
+// -1 or 1, from "the left one is smaller".  Named because `if a < b
+// then -1 else 1` reads worse three times over than once.
+fn rank(smaller: Bool) -> Int
+    if smaller
+        -1
+    else
+        1
+
+// Whether `s` is a non-empty run of decimal digits.  Empty is not a
+// number, which is what makes `1..3` and a trailing dot fail.
+fn all_digits(s: Str) -> Bool
+    let n = str.len(s)
+    if n == 0
+        false
+    else
+        var ok = true
+        for i in 0 .. n
+            let c = str.char_at(s, i) ?? ""
+            if c < "0" or c > "9"
+                ok = false
+        ok
+
+// Whether every component is a run of digits.
+fn all_of_them_are_digits(comps: [Str]) -> Bool
+    var ok = true
+    for c in comps
+        if not all_digits(c)
+            ok = false
+    ok
+
+// Whether a component is the wildcard a partial requirement ends with.
+fn is_wildcard(comp: Str) -> Bool
+    comp == "x" or comp == "X" or comp == "*"
