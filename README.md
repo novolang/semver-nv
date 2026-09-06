@@ -26,16 +26,11 @@ novo pkg add semver-nv
 
 ## What it gives you
 
-| Function | |
-|---|---|
-| `semver.parse(text: Str) -> ?Version` | a version, or `None` when the text is not one |
-| `semver.compare(a: Version, b: Version) -> Int` | `-1`, `0` or `1`, by the ordering a resolver picks "highest" with |
-| `semver.matches(requirement: Str, v: Version) -> Bool` | does this version answer that requirement |
-| `semver.satisfies(requirement: Str, version_text: Str) -> Bool` | the same, both sides as text |
-| `semver.requirement_ok(requirement: Str) -> Bool` | is that a requirement at all |
-| `semver.best(requirement: Str, candidates: [Str]) -> ?Str` | the highest candidate that answers it |
-| `v.text() -> Str` | the version as text, parsing back to an equal value |
-| `v.is_prerelease() -> Bool` | whether it ranks below the plain version with the same numbers |
+The API is on [the package's page](https://novo-lang.org/packages/semver-nv),
+generated from these sources: every `pub` declaration with its signature,
+its effect row and the comment block written above it. A table of names
+here would be a second original, and the second original is the one that
+goes stale.
 
 `Version` carries `major`, `minor`, `patch`, `pre` and `build`. `pre`
 and `build` are empty strings when absent, so there is no optional to
