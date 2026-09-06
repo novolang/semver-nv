@@ -12,14 +12,10 @@
 // being the resolver's whole question: given a requirement and the
 // versions that exist, which one is chosen.
 //
-// How to use it.
-//
-//     match semver.parse("1.4.2-rc.1")
-//         None    => println("not a version")
-//         Some(v) => println("${v.major} ${v.is_prerelease()}")
-//
-//     semver.matches("^1.2", v)              // Bool
-//     semver.best("^0.4", ["0.4.1", "0.5.0"])  // Some("0.4.1")
+// How to use it.  `parse` turns text into a `Version`, `matches` and
+// `satisfies` answer yes or no about one, and `best` picks the one to
+// install out of the versions a registry lists.  Each carries a worked
+// example below.
 //
 // What it costs.  One pass over the text per parse, and one pass over
 // the candidate list per `best`.  No table, no state, and the only
@@ -39,9 +35,13 @@
 use std.list
 use std.str
 
-// A parsed semantic version.  `pre` and `build` are empty strings when
-// the version carried neither, so there is no optional to unwrap for
-// the common case.
+// A parsed semantic version: three numbers, and the two optional
+// labels after them.
+//
+// `pre` and `build` are empty strings when the version carried
+// neither, so there is no optional to unwrap for the common case — a
+// reader asks `is_prerelease()` rather than matching on a `?Str`.
+// `parse` is what answers one; `text` writes it back out.
 pub struct Version
     major: Int
     minor: Int
@@ -49,10 +49,25 @@ pub struct Version
     pre: Str
     build: Str
 
-// `text` as a version, or `None` when it is not one.  `1.2`, `1.2.3.4`,
-// `v1.2.3`, `1.2.x` and a bare trailing `-` are all `None`: this is the
-// parser a registry runs before it accepts a publish, so it refuses
-// rather than guesses.
+// Read `text` as a version, or answer `None` when it is not one.
+//
+// All three numbers are required and nothing else is accepted: `1.2`,
+// `1.2.3.4`, `v1.2.3`, `1.2.x` and a bare trailing `-` are every one
+// of them `None`.  This is the parser a registry runs before it accepts
+// a publish, so it refuses rather than guesses — a version it invented
+// would be permanent.  Partial forms belong in a REQUIREMENT, which is
+// what `matches` reads.
+//
+// ```novo
+// match semver.parse("1.4.2-rc.1+build.7")
+//     None    => println("not a version")
+//     Some(v) => println("${v.major}.${v.minor}.${v.patch} ${v.pre} ${v.build}")
+// // 1.4.2 rc.1 build.7
+//
+// // A version needs all three numbers, and no `v` in front of them.
+// println("${semver.parse("1.2") == None} ${semver.parse("v1.2.3") == None}")
+// // true true
+// ```
 pub fn parse(text: Str) -> ?Version
     // Build metadata comes off first: it never participates in
     // ordering, so nothing below has to keep stepping around it.
@@ -86,11 +101,33 @@ pub fn parse(text: Str) -> ?Version
                        patch: str.to_int(parts[2]) ?? 0,
                        pre: pre, build: build })
 
-// -1, 0 or 1, by the ordering a resolver picks "highest" with.
+// Answer -1, 0 or 1 — the ordering a resolver picks "highest" with.
 //
-// A release outranks a prerelease at the same triple (semver §11:
+// Not text order: `0.10.0` is above `0.9.0` as a version and below it
+// alphabetically, which is the mistake this function exists to stop.  A
+// release outranks a prerelease at the same triple (semver §11:
 // `1.0.0-alpha` < `1.0.0`), and build metadata is ignored, so two
-// versions differing only in it compare equal.
+// versions differing only in it compare EQUAL — that is what semver §10
+// requires, and it means `compare(a, b) == 0` is not `a.text() ==
+// b.text()`.
+//
+// Prerelease labels compare as plain text rather than by §11's
+// dot-separated identifier rules, so `rc.10` sorts before `rc.2`.
+//
+// ```novo
+// // Version order, not text order: "0.9.0" is above "0.10.0"
+// // alphabetically and below it as a version.
+// println("${semver.compare(semver.parse("0.9.0")!, semver.parse("0.10.0")!)}")
+// // -1
+//
+// // A release outranks its own prerelease.
+// println("${semver.compare(semver.parse("1.0.0-rc.1")!, semver.parse("1.0.0")!)}")
+// // -1
+//
+// // Build metadata is not part of the version.
+// println("${semver.compare(semver.parse("1.0.0")!, semver.parse("1.0.0+2026")!)}")
+// // 0
+// ```
 pub fn compare(a: Version, b: Version) -> Int
     if a.major != b.major
         rank(a.major < b.major)
@@ -107,9 +144,19 @@ pub fn compare(a: Version, b: Version) -> Int
     else
         rank(a.pre < b.pre)
 
+// The questions a version answers about itself.
 impl Version
-    // The version as text, in the form it parses from.  A round trip
-    // through `parse` gives back an equal value.
+    // Answer the version as text, in the form it parses from.
+    //
+    // `parse(v.text())` is `v` for every version this can hold, which
+    // is the direction a round-trip test can assert.  The other
+    // direction does not hold in general: `parse` accepts only the
+    // canonical spelling, so there is nothing for it to normalise away.
+    //
+    // ```novo
+    // println(semver.parse("1.4.2-rc.1+build.7")!.text())
+    // // 1.4.2-rc.1+build.7
+    // ```
     fn text(self) -> Str
         var out = "${self.major}.${self.minor}.${self.patch}"
         if str.len(self.pre) > 0
@@ -118,8 +165,18 @@ impl Version
             out = out + "+" + self.build
         out
 
-    // Whether this version carries a prerelease label, and so ranks
-    // below the plain version with the same triple.
+    // Answer whether this version carries a prerelease label, and so
+    // ranks below the plain version with the same three numbers.
+    //
+    // It is also the question that decides whether a resolver may
+    // choose it at all: a prerelease is only ever picked when the
+    // requirement named one at the same triple.  Build metadata is not
+    // a prerelease — `1.0.0+2026` is a release.
+    //
+    // ```novo
+    // println("${semver.parse("1.0.0-rc.1")!.is_prerelease()}")   // true
+    // println("${semver.parse("1.0.0+2026")!.is_prerelease()}")   // false
+    // ```
     fn is_prerelease(self) -> Bool
         str.len(self.pre) > 0
 
@@ -143,33 +200,111 @@ enum Bound
     // `>=1.0.0` and its siblings, including a bare `=`.
     Compare(op: Str, base: Version)
 
-// Whether `version` answers `requirement`.  False when the requirement
-// does not parse — `requirement_ok` is how a caller tells that apart
-// from a requirement nothing satisfies.
+// Answer whether `version` satisfies `requirement`.
+//
+// `false` when the requirement does not parse at all — the two
+// outcomes are not distinguished here, and `requirement_ok` is how a
+// caller tells "nothing answers it" from "that is not a requirement".
+//
+// A requirement is a comma-separated conjunction, so a version answers
+// it only by answering every part.  Two rules a caller should know
+// before reading a `false`: caret moves its promise down one place
+// below `1.0.0`, so `^0.4.1` refuses `0.5.0`; and a prerelease is
+// never picked up by accident, so `^1.0.0` refuses `1.1.0-alpha` and
+// so does `*`.
+//
+// ```novo
+// // Caret allows anything that is not allowed to break you.
+// println("${semver.matches("^1.2", semver.parse("1.9.0")!)}")   // true
+// println("${semver.matches("^1.2", semver.parse("2.0.0")!)}")   // false
+//
+// // Below 1.0.0 the minor is the break, which is what `0.x` means.
+// println("${semver.matches("^0.4.1", semver.parse("0.4.9")!)}")   // true
+// println("${semver.matches("^0.4.1", semver.parse("0.5.0")!)}")   // false
+//
+// // A prerelease arrives only where one was asked for.
+// println("${semver.matches("^1.0.0", semver.parse("1.1.0-alpha")!)}")     // false
+// println("${semver.matches("^1.1.0-alpha", semver.parse("1.1.0-beta")!)}") // true
+// ```
 pub fn matches(requirement: Str, version: Version) -> Bool
     match parse_requirement(requirement)
         None         => false
         Some(bounds) => satisfies_all(version, bounds)
 
-// Whether the version written as `version_text` answers `requirement`.
+// Answer whether the version written as `version_text` satisfies
+// `requirement`.
+//
 // The form for a caller holding both as strings, which is what a
-// manifest and a registry listing each hold.
+// manifest and a registry listing each hold.  A `version_text` that is
+// not a version is `false`, like a requirement that is not a
+// requirement — this asks one yes-or-no question and never says which
+// side was malformed.  `parse` and `requirement_ok` are what answer
+// that.
+//
+// ```novo
+// println("${semver.satisfies(">=1.0.0, <2.0.0", "1.4.2")}")   // true
+// println("${semver.satisfies(">=1.0.0, <2.0.0", "2.0.0")}")   // false
+//
+// // A conjunction: every part has to hold.
+// println("${semver.satisfies("^1.2, <1.5", "1.9.0")}")   // false
+//
+// // Text that is not a version answers no, rather than complaining.
+// println("${semver.satisfies("*", "v1.2.3")}")   // false
+// ```
 pub fn satisfies(requirement: Str, version_text: Str) -> Bool
     match parse(version_text)
         None    => false
         Some(v) => matches(requirement, v)
 
-// Whether `requirement` is a requirement at all.  A caller that got
-// `false` from `matches` needs this to tell "no version answers it"
-// from "that is not a requirement".
+// Answer whether `requirement` is a requirement at all.
+//
+// The question `matches` and `best` cannot answer: both say no to a
+// requirement nothing satisfies and no to a string that is not a
+// requirement, and a manifest reader has to tell those apart — one is
+// a resolution failure and the other is a typo to report.  Ask this
+// once, where the manifest is read.
+//
+// ```novo
+// println("${semver.requirement_ok("^1.2")} ${semver.requirement_ok(">=1.0, <2")}")
+// // true true
+//
+// // A wildcard under an operator names no version to compare against.
+// println("${semver.requirement_ok(">=1.x")}")   // false
+//
+// // `best` says None to both of these; only this says which is which.
+// println("${semver.requirement_ok("not a requirement")}")   // false
+// ```
 pub fn requirement_ok(requirement: Str) -> Bool
     match parse_requirement(requirement)
         None    => false
         Some(_) => true
 
-// The highest of `candidates` that answers `requirement`, or `None`.
-// This is the resolver's question: the candidates are the versions a
-// registry lists, and the answer is the one to install.
+// Answer the highest of `candidates` that satisfies `requirement`, or
+// `None`.
+//
+// This is the resolver's whole question: the candidates are the
+// versions a registry lists, and the answer is the one to install.  The
+// string that comes back is the candidate as it was written, not a
+// re-rendering, so a caller can hand it straight back to the registry.
+//
+// A candidate that does not parse is not a release the registry could
+// serve, so it is skipped rather than refused — one bad line in a
+// listing does not stop a resolve.  `None` covers both "nothing here
+// answers it" and "that is not a requirement"; `requirement_ok` is what
+// tells those apart.
+//
+// ```novo
+// // Highest wins, and version order is not text order: 0.4.10 is
+// // above 0.4.2, and 0.5.0 is outside a caret on 0.4.
+// println(semver.best("^0.4", ["0.4.1", "0.4.10", "0.4.2", "0.5.0"]) ?? "none")
+// // 0.4.10
+//
+// // Nothing in range answers with nothing.
+// println(semver.best("^2", ["0.4.1", "1.0.0"]) ?? "none")   // none
+//
+// // A prerelease is not chosen unless the requirement named one.
+// println(semver.best("^1.0.0", ["1.1.0-alpha", "1.0.0"]) ?? "none")   // 1.0.0
+// ```
 pub fn best(requirement: Str, candidates: [Str]) -> ?Str
     match parse_requirement(requirement)
         None         => None

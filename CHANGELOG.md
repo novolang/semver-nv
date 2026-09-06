@@ -4,6 +4,26 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.3
+
+Documentation: the reference is generated from the code, and the
+examples in it are doctests.  No code changed — every requirement
+answers what it answered in 0.1.2.
+
+- **Every `pub` item is documented under Go's rule**, the comment block
+  directly above the declaration, its first sentence the summary a
+  reader meets before opening anything.  `Version.text` and
+  `Version.is_prerelease` carry their own.  `novo doc` turns the lot
+  into [the package's page](https://novo-lang.org/packages/semver-nv).
+- **Eight worked examples, and they run.**  The rules a caller has to
+  know before reading a `false` are now shown rather than described:
+  that caret moves its promise down one place below `1.0.0`, that a
+  prerelease is never picked up by accident, that build metadata makes
+  two versions compare equal, and that `0.4.10` outranks `0.4.2`
+  though the text says otherwise.  A fenced `novo` block in a
+  documentation comment is compiled by `novo doc` and run by
+  `novo test src/semver.nv`.
+
 ## 0.1.2
 
 Developed in its own repository from this version.  `novolang/semver-nv` is

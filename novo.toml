@@ -1,6 +1,6 @@
 [package]
 name        = "semver-nv"
-version     = "0.1.2"
+version     = "0.1.3"
 description = "Semantic versions: parsing, ordering, and deciding whether a version answers a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0.  Mirrors the rules the Orbit registry enforces, and is differential-tested against the registry's own parser."
 license     = "Apache-2.0"
 stability   = "experimental"
