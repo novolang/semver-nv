@@ -583,7 +583,7 @@ fn all_digits(s: Str) -> Bool
     else
         var ok = true
         for i in 0 .. n
-            let c = str.char_at(s, i) ?? ""
+            let c = str.byte_str_at(s, i) ?? ""
             if c < "0" or c > "9"
                 ok = false
         ok
