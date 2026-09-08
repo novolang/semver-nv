@@ -227,7 +227,7 @@ fn test_the_two_version_lists_sort_the_same_way() [io]
     let shuffled = ["1.0.0", "0.1.0", "1.0.0-rc.1", "0.10.0", "0.9.0", "2.0.0"]
     var ordered: [Str] = []
     var pool = shuffled
-    for _step in 0 .. list.len(shuffled)
+    for _step in 0..list.len(shuffled)
         let lowest = lowest_of(pool)
         ordered = list.push(ordered, lowest)
         pool = list.filter(pool, t => t != lowest)
