@@ -1,7 +1,7 @@
 [package]
 name        = "semver-nv"
-version     = "0.1.4"
-description = "Semantic versions: parsing, ordering, and deciding whether a version answers a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0.  Mirrors the rules the Orbit registry enforces, and is differential-tested against the registry's own parser."
+version     = "0.1.5"
+description = "Semantic versions, the order they are compared in, and the requirements a manifest writes against them: parse a version, order two of them, answer whether one satisfies a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0, and pick the release a registry listing offers.  The requirement grammar is the Orbit registry's."
 license     = "Apache-2.0"
 stability   = "experimental"
 category    = "tooling"
@@ -11,10 +11,11 @@ repository  = "https://github.com/novolang/semver-nv"
 maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
-# The README is the package's one page, and its own first heading is the
-# package name — which says nothing in a list of this package's pages.
+# The README is the package's one page.  Its own first heading is the
+# package name, which says nothing in a list of this package's pages,
+# so the title below is what that list shows.
 [docs.pages]
 "README.md" = "Parsing versions and matching requirements"
 
 [dependencies]
-# None.  std.str does the splitting and std.list holds the pieces.
+# None.  `std.str` does the splitting and `std.list` holds the pieces.

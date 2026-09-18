@@ -1,19 +1,37 @@
 # Changelog
 
 Newest first.  Below `1.0.0` a breaking change bumps the **minor**
-number and a compatible one the **patch**; see [Version numbers in the
+number and a compatible one the **patch**.  See [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
+
+## 0.1.5 — 2026-09-18
+
+The documentation and comments in plain prose; no signature changed.
+
+- **The leading zero is documented where a reader meets it.**  `parse`
+  accepts `01.2.3` and answers the version `1.2.3`.  Semantic
+  Versioning 2.0.0 item 2 forbids a leading zero, and the Orbit
+  registry lists `01.2.3` among the strings its `MALFORMED_VERSION`
+  rule refuses, so a version this package accepts can still be refused
+  at publish.  The README, the module header, the documentation above
+  `parse` and the comment on the digit check each say so.  No code
+  changed.
 
 ## 0.1.4 — 2026-09-08
 
-- **Declares its layer**: `layer = "core"` in the manifest — the public API requires no effects, and `novo pkg publish` now checks the code against that budget.  No code changed.  The layers are described under Design in the [publishing guide](https://novo-lang.org/docs/publishing.html#design).
-- **Sources reformatted to the canonical form** `novo fmt` prints today (spacing and alignment only; no code changed).
+- **The layer is declared.**  `layer = "core"` in the manifest.  The
+  public API requires no effects, and `novo pkg publish` checks the
+  code against that layer.  No code changed.  The layers are described
+  under Design in the [publishing
+  guide](https://novo-lang.org/docs/publishing.html#design).
+- **The sources are in the canonical form** `novo fmt` prints today.
+  Spacing and alignment only, and no code changed.
 
 ## 0.1.3
 
-Documentation: the reference is generated from the code, and the
-examples in it are doctests.  No code changed — every requirement
-answers what it answered in 0.1.2.
+The reference generated from the code, with the examples in it run as
+tests.  No code changed, and every requirement answers what it answered
+in 0.1.2.
 
 - **Every `pub` item is documented under Go's rule**, the comment block
   directly above the declaration, its first sentence the summary a
@@ -21,30 +39,25 @@ answers what it answered in 0.1.2.
   `Version.is_prerelease` carry their own.  `novo doc` turns the lot
   into [the package's page](https://novo-lang.org/packages/semver-nv).
 - **Eight worked examples, and they run.**  The rules a caller has to
-  know before reading a `false` are now shown rather than described:
-  that caret moves its promise down one place below `1.0.0`, that a
-  prerelease is never picked up by accident, that build metadata makes
-  two versions compare equal, and that `0.4.10` outranks `0.4.2`
-  though the text says otherwise.  A fenced `novo` block in a
-  documentation comment is compiled by `novo doc` and run by
-  `novo test src/semver.nv`.
+  know before reading a `false` are shown rather than described.  A
+  caret moves its promise down one place below `1.0.0`, a prerelease is
+  never picked up by accident, build metadata makes two versions
+  compare equal, and `0.4.10` outranks `0.4.2` though the text says
+  otherwise.  A fenced `novo` block in a documentation comment is
+  compiled by `novo doc` and run by `novo test src/semver.nv`.
 
 ## 0.1.2
 
-Developed in its own repository from this version.  `novolang/semver-nv` is
-where the sources live, where CI runs and where releases are tagged;
-the novo-lang monorepo no longer carries a copy.  No code changed —
-every signature and every byte on the wire is what 0.1.1 shipped.
+The Apache-2.0 text in the tarball.  No code changed, and every
+signature is what 0.1.1 shipped.
 
 - **`LICENSE` ships with the package.**  It is on the publish
-  allow-list, so the tarball now carries the Apache-2.0 text rather
-  than only naming it in the manifest.
+  allow-list, so the tarball carries the licence text rather than only
+  naming it in the manifest.
 
 ## 0.1.1
 
-A patch: the same grammar and the same answers.  The differential
-against the Orbit registry's own requirement parser still agrees on
-every case.
+A patch, with the same grammar and the same answers.
 
 - **The test module moved out of `src/`.**  A package's `src/` ships
   whole and a consumer compiles every module in it, so the suite is
@@ -56,26 +69,24 @@ every case.
   this release is the first one the packages page can shelve and
   filter.
 
-There is no bit arithmetic here to rewrite onto the new operators: a
-version is three numbers and two strings, and comparing them is
-ordinary comparison.
-
 ## 0.1.0
 
-First release: `parse`, `compare`, `matches`, `satisfies`,
+The first release.  `parse`, `compare`, `matches`, `satisfies`,
 `requirement_ok`, `best`, and the `Version` value's `text` and
 `is_prerelease`.
 
-- **The registry's rules, mirrored.**  Parsing and ordering follow the
-  Orbit registry's own parser, and a differential run compares the two
-  over a corpus of 24 versions and all 576 pairs, asserted identical.
+- **Versions as the Orbit registry orders them.**  Parsing and ordering
+  follow the registry's own rules: the three numbers compared as
+  numbers, a release above the prerelease carrying the same three, and
+  build metadata left out of every comparison.
 - **The whole requirement grammar** a manifest may write: `^`, `~`,
   `>=`, `>`, `<=`, `<`, `=`, wildcards, a bare version as a caret
   requirement, and a comma-separated conjunction of any of them.
 - **Caret moves its promise down one place below `1.0.0`**, so `^0.4.1`
-  refuses `0.5.0` — the rule that makes `0.x` mean something.
+  refuses `0.5.0`.  That is the rule that makes a `0.x` number carry
+  information.
 - **A prerelease is never picked up by accident.**  It is chosen only
-  when the requirement named one at the same three numbers.
-- **`best`** answers the resolver's question directly: the highest
-  candidate that satisfies a requirement, ordered as versions rather
-  than as text.
+  where the requirement named one at the same three numbers.
+- **`best`** answers the resolver's question directly.  It is the
+  highest candidate that satisfies a requirement, ordered as versions
+  rather than as text.
