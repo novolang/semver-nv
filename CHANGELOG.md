@@ -4,6 +4,18 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**.  See [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.6 — 2026-09-26
+
+- **The toolchain floor is 0.12.0**, where the manifest named none.
+  `best` and the requirement parser hand an absent value back with `!`
+  on an optional, a 0.12.0 form. An older toolchain reads `!` on an
+  optional as unwrap or panic, so it would panic where this release
+  answers `None`. No signature and no answer changed.
+- **The test suite compiles on 0.12.0.** The sorting test copied its
+  list with `var pool = shuffled`, and 0.12.0 refuses a writable name
+  made from a `let` list (E2038). It now takes a copy, `shuffled[:]`,
+  and the 21 tests pass.
+
 ## 0.1.5 — 2026-09-18
 
 The documentation and comments in plain prose; no signature changed.

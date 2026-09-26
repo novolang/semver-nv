@@ -1,6 +1,6 @@
 [package]
 name        = "semver-nv"
-version     = "0.1.5"
+version     = "0.1.6"
 description = "Semantic versions, the order they are compared in, and the requirements a manifest writes against them: parse a version, order two of them, answer whether one satisfies a requirement such as ^1.2, ~0.4.1 or >=1.0.0, <2.0.0, and pick the release a registry listing offers.  The requirement grammar is the Orbit registry's."
 license     = "Apache-2.0"
 stability   = "experimental"
@@ -9,6 +9,10 @@ layer       = "core"
 tags        = ["semver", "version", "range", "resolver", "registry"]
 repository  = "https://github.com/novolang/semver-nv"
 maintainers = ["novo-lang"]
+# `!` on an optional hands `None` back from a function that answers an
+# optional from toolchain 0.12.0.  An older toolchain panics there
+# instead, so the floor is 0.12.0.
+novo        = ">= 0.12.0"
 main        = "src/main.nv"
 
 # The README is the package's one page.  Its own first heading is the

@@ -337,22 +337,20 @@ pub fn requirement_ok(requirement: Str) -> Bool
 // println(semver.best("^1.0.0", ["1.1.0-alpha", "1.0.0"]) ?? "none")   // 1.0.0
 // ```
 pub fn best(requirement: Str, candidates: [Str]) -> ?Str
-    match parse_requirement(requirement)
-        None         => None
-        Some(bounds) =>
-            var chosen: ?Str = None
-            var chosen_v = zero_version()
-            for text in candidates
-                // A candidate that does not parse is not a release the
-                // registry could serve, so it is not a candidate.
-                let candidate = parse(text)
-                let wins = match candidate
-                    None    => false
-                    Some(v) => satisfies_all(v, bounds) and better(v, chosen, chosen_v)
-                if wins
-                    chosen = Some(text)
-                    chosen_v = candidate ?? chosen_v
-            chosen
+    let bounds = parse_requirement(requirement)!
+    var chosen: ?Str = None
+    var chosen_v = zero_version()
+    for text in candidates
+        // A candidate that does not parse is not a release the
+        // registry could serve, so it is not a candidate.
+        let candidate = parse(text)
+        let wins = match candidate
+            None    => false
+            Some(v) => satisfies_all(v, bounds) and better(v, chosen, chosen_v)
+        if wins
+            chosen = Some(text)
+            chosen_v = candidate ?? chosen_v
+    chosen
 
 // ── Parsing a requirement ────────────────────────────────────────────
 
@@ -403,32 +401,28 @@ fn parse_bound(piece: Str) -> ?Bound
 // single version to compare against.
 fn with_version(piece: Str, skip: Int, op: Str) -> ?Bound
     let tail = str.slice(piece, skip, str.len(piece))
-    match parse_tail(tail)
-        None    => None
-        Some(t) =>
-            if t.wildcard
-                None
-            else if op == "^"
-                Some(Caret(base: t.version, written: t.written))
-            else if op == "~"
-                Some(Tilde(base: t.version, written: t.written))
-            else
-                Some(Compare(op: op, base: t.version))
+    let t = parse_tail(tail)!
+    if t.wildcard
+        None
+    else if op == "^"
+        Some(Caret(base: t.version, written: t.written))
+    else if op == "~"
+        Some(Tilde(base: t.version, written: t.written))
+    else
+        Some(Compare(op: op, base: t.version))
 
 // A primitive with no operator.  It is a wildcard, or a version that
 // means a caret requirement.
 fn bare_bound(piece: Str) -> ?Bound
-    match parse_tail(piece)
-        None    => None
-        Some(t) =>
-            if not t.wildcard
-                Some(Caret(base: t.version, written: t.written))
-            else if t.written == 0
-                Some(Any)
-            else if t.written == 1
-                Some(AnyMinor(major: t.version.major))
-            else
-                Some(AnyPatch(major: t.version.major, minor: t.version.minor))
+    let t = parse_tail(piece)!
+    if not t.wildcard
+        Some(Caret(base: t.version, written: t.written))
+    else if t.written == 0
+        Some(Any)
+    else if t.written == 1
+        Some(AnyMinor(major: t.version.major))
+    else
+        Some(AnyPatch(major: t.version.major, minor: t.version.minor))
 
 // A parsed version tail.  It holds the version with the numbers the
 // author did not write left at zero, how many they did write, and
