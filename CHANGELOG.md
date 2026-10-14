@@ -4,6 +4,12 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**.  See [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## Unreleased
+
+### Fixed
+
+- A version or requirement number too large for an Int is refused.
+
 ## 0.1.6 — 2026-09-26
 
 - **The toolchain floor is 0.12.0**, where the manifest named none.
